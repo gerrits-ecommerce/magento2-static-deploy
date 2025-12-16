@@ -22,8 +22,8 @@ On this project, deployment improved from **~115 seconds** (Magento native) to *
 ### Build from Source
 
 ```bash
-cd tools/static-deploy
-go build -o static-deploy main.go watcher.go
+cd tools/magento2-static-deploy
+go build -o magento2-static-deploy main.go watcher.go
 ```
 
 ### Requirements
@@ -37,7 +37,7 @@ go build -o static-deploy main.go watcher.go
 Deploy Vendor/Hyva theme to frontend area:
 
 ```bash
-./tools/static-deploy/static-deploy \
+./tools/magento2-static-deploy/magento2-static-deploy \
   -root . \
   -locales nl_NL \
   -themes Vendor/Hyva \
@@ -47,7 +47,7 @@ Deploy Vendor/Hyva theme to frontend area:
 ### With Verbose Output
 
 ```bash
-./tools/static-deploy/static-deploy \
+./tools/magento2-static-deploy/magento2-static-deploy \
   -root . \
   -locales nl_NL,en_US \
   -themes Vendor/Hyva \
@@ -65,7 +65,7 @@ By default, only `frontend` area is deployed. This is because:
 
 To deploy admin themes if they exist:
 ```bash
-./static-deploy -areas frontend,adminhtml -v
+./magento2-static-deploy -areas frontend,adminhtml -v
 ```
 
 ### All Options
@@ -105,13 +105,13 @@ To deploy admin themes if they exist:
 ### Deploy Single Locale/Theme
 
 ```bash
-./static-deploy -root /var/www/magento -locales nl_NL -themes Vendor/Hyva -areas frontend
+./magento2-static-deploy -root /var/www/magento -locales nl_NL -themes Vendor/Hyva -areas frontend
 ```
 
 ### Deploy Multiple Locales and Themes
 
 ```bash
-./static-deploy \
+./magento2-static-deploy \
   -locales nl_NL,en_US,de_DE \
   -themes Vendor/Hyva,Magento/blank \
   -areas frontend
@@ -120,13 +120,13 @@ To deploy admin themes if they exist:
 ### Sequential Processing (1 Job)
 
 ```bash
-./static-deploy -jobs 1 -v
+./magento2-static-deploy -jobs 1 -v
 ```
 
 ### Full Admin + Frontend Deployment
 
 ```bash
-./static-deploy \
+./magento2-static-deploy \
   -locales nl_NL \
   -themes Vendor/Hyva \
   -areas frontend,adminhtml
@@ -178,7 +178,7 @@ This version performs pure file copying. The following are handled separately:
 
 2. **Deployment Prep**: Run this tool to stage static files
    ```bash
-   ./static-deploy -v
+   ./magento2-static-deploy -v
    ```
 
 3. **Cache Clear** (if needed):
@@ -213,13 +213,13 @@ Not yet implemented:
 ### Building
 
 ```bash
-go build -o static-deploy main.go watcher.go
+go build -o magento2-static-deploy main.go watcher.go
 ```
 
 ### Performance Profiling
 
 ```bash
-time ./static-deploy -v
+time ./magento2-static-deploy -v
 ```
 
 ## Integration with Existing Workflow

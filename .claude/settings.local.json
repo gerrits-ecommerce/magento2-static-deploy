@@ -1,7 +1,0 @@
-{
-  "enabledMcpjsonServers": [
-    "context7",
-    "magento2-dev",
-    "playwright"
-  ]
-}
