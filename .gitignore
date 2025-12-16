@@ -1,5 +1,5 @@
 # Binary
-static-deploy
+magento2-static-deploy
 
 # Go build artifacts
 *.o
