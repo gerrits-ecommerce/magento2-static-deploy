@@ -38,14 +38,15 @@ type ModuleConfig struct {
 }
 
 var (
-	magentoRoot = flag.String("root", ".", "Path to Magento root directory")
-	locales     = flag.String("locales", "en_US", "Comma-separated locales (e.g., en_US,nl_NL,de_DE)")
-	themes      = flag.String("themes", "Vendor/Hyva", "Comma-separated themes (e.g., Vendor/Hyva,Hyva/reset)")
-	areas       = flag.String("areas", "frontend", "Comma-separated areas (default: frontend only)")
-	jobs        = flag.Int("jobs", 0, "Number of parallel jobs (0 = auto-detect CPU count)")
-	strategy    = flag.String("strategy", "quick", "Deployment strategy (quick, standard, compact)")
-	force       = flag.Bool("force", false, "Force deployment even if files exist")
-	verbose     = flag.Bool("v", false, "Verbose output")
+	magentoRoot    = flag.String("root", ".", "Path to Magento root directory")
+	locales        = flag.String("locales", "en_US", "Comma-separated locales (e.g., en_US,nl_NL,de_DE)")
+	themes         = flag.String("themes", "Vendor/Hyva", "Comma-separated themes (e.g., Vendor/Hyva,Hyva/reset)")
+	areas          = flag.String("areas", "frontend", "Comma-separated areas (default: frontend only)")
+	jobs           = flag.Int("jobs", 0, "Number of parallel jobs (0 = auto-detect CPU count)")
+	strategy       = flag.String("strategy", "quick", "Deployment strategy (quick, standard, compact)")
+	force          = flag.Bool("force", false, "Force deployment even if files exist")
+	verbose        = flag.Bool("v", false, "Verbose output")
+	contentVersion = flag.String("content-version", "", "Static content version (default: auto-generate timestamp)")
 )
 
 func main() {
@@ -74,6 +75,7 @@ func main() {
 		parseCSV(*areas),
 		numJobs,
 		*verbose,
+		*contentVersion,
 	)
 
 	printResults(results, time.Since(start))
@@ -92,9 +94,12 @@ func main() {
 }
 
 // deployStatic orchestrates the parallel deployment
-func deployStatic(magentoRoot string, locales, themes, areas []string, numJobs int, verbose bool) []DeployResult {
-	// Generate deployment version based on current timestamp
-	version := fmt.Sprintf("%d", time.Now().Unix())
+func deployStatic(magentoRoot string, locales, themes, areas []string, numJobs int, verbose bool, contentVersion string) []DeployResult {
+	// Use provided content version or generate one based on current timestamp
+	version := contentVersion
+	if version == "" {
+		version = fmt.Sprintf("%d", time.Now().Unix())
+	}
 
 	// Create deployment jobs
 	jobs := createDeployJobs(locales, themes, areas)

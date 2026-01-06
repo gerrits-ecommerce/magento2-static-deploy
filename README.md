@@ -97,6 +97,10 @@ To deploy admin themes if they exist:
   -force
         Force deployment even if files exist (always copies)
 
+  -content-version string
+        Static content version (default: auto-generate timestamp)
+        Use this to reuse the same version across multiple deployments
+
   -v    Verbose output showing per-deployment progress
 ```
 
@@ -131,6 +135,26 @@ To deploy admin themes if they exist:
   -themes Vendor/Hyva \
   -areas frontend,adminhtml
 ```
+
+### Reuse Content Version (for Split Deployments)
+
+When splitting deployments across multiple runs (e.g., deploying different locales or themes in parallel), you can reuse the same content version:
+
+```bash
+# First deployment
+./magento2-static-deploy \
+  -locales nl_NL \
+  -themes Vendor/Hyva \
+  -content-version 1234567890
+
+# Second deployment with the same version
+./magento2-static-deploy \
+  -locales en_US,de_DE \
+  -themes Vendor/Hyva \
+  -content-version 1234567890
+```
+
+This is useful for deployment tools like [Deployer](https://github.com/deployphp/deployer) or Hypernode Deploy that optimize deployments by splitting locale-theme combinations across multiple processes.
 
 ## What It Does
 
@@ -193,11 +217,11 @@ Current version:
 - ✓ Parallel processing
 - ✓ Multi-locale/theme support
 - ✓ Verbose progress reporting
+- ✓ Content version management
 
 Not yet implemented:
 - LESS/SCSS compilation (use npm instead)
 - JavaScript bundling (use npm instead)
-- Content version management
 - Symlink fallback strategy
 - Incremental deployment detection
 - CDN push notifications
