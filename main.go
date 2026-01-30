@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,17 +39,25 @@ type ModuleConfig struct {
 	} `xml:"module"`
 }
 
+// ThemeConfig represents a Magento theme.xml structure
+type ThemeConfig struct {
+	XMLName xml.Name `xml:"theme"`
+	Parent  string   `xml:"parent"`
+}
+
 // CLI flags (Magento-compatible)
 var (
-	magentoRoot    string
-	areasFlag      []string
-	themesFlag     []string
-	languagesFlag  []string
-	jobsFlag       int
-	strategyFlag   string
-	forceFlag      bool
-	verboseFlag    bool
-	contentVersion string
+	magentoRoot      string
+	areasFlag        []string
+	themesFlag       []string
+	languagesFlag    []string
+	jobsFlag         int
+	strategyFlag     string
+	forceFlag        bool
+	verboseFlag      bool
+	contentVersion   string
+	noLumaDispatch   bool
+	phpBinary        string
 )
 
 func init() {
@@ -62,6 +71,8 @@ func init() {
 	flag.BoolVarP(&forceFlag, "force", "f", false, "Deploy files in any mode")
 	flag.BoolVarP(&verboseFlag, "verbose", "v", false, "Verbose output")
 	flag.StringVar(&contentVersion, "content-version", "", "Custom version of static content")
+	flag.BoolVar(&noLumaDispatch, "no-luma-dispatch", false, "Disable automatic dispatch of Luma themes to bin/magento")
+	flag.StringVar(&phpBinary, "php", "php", "Path to PHP binary for Luma theme dispatch")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -114,27 +125,56 @@ func main() {
 		fmt.Printf("Strategy: %s\n\n", strategyFlag)
 	}
 
-	start := time.Now()
-	results := deployStatic(
-		magentoRoot,
-		languages,
-		themes,
-		areas,
-		numJobs,
-		verboseFlag,
-		contentVersion,
-	)
+	// Classify themes into Hyvä and Luma
+	var hyvaThemes, lumaThemes []string
+	if noLumaDispatch {
+		// Treat all themes as Hyvä (user explicitly disabled Luma dispatch)
+		hyvaThemes = themes
+		if verboseFlag {
+			fmt.Println("Luma dispatch disabled - treating all themes as Hyvä")
+		}
+	} else {
+		hyvaThemes, lumaThemes = classifyThemes(magentoRoot, themes, areas, verboseFlag)
+	}
 
-	printResults(results, time.Since(start))
-
-	// Check for actual errors (not skipped themes)
 	hasErrors := false
-	for _, result := range results {
-		if result.Error != "" && !strings.Contains(result.Error, "theme not found") {
-			hasErrors = true
-			break
+	start := time.Now()
+
+	// Deploy Hyvä themes using Go binary
+	if len(hyvaThemes) > 0 {
+		if verboseFlag && len(lumaThemes) > 0 {
+			fmt.Println("\nDeploying Hyvä themes using Go binary...")
+		}
+		results := deployStatic(
+			magentoRoot,
+			languages,
+			hyvaThemes,
+			areas,
+			numJobs,
+			verboseFlag,
+			contentVersion,
+		)
+
+		printResults(results, time.Since(start))
+
+		// Check for actual errors (not skipped themes)
+		for _, result := range results {
+			if result.Error != "" && !strings.Contains(result.Error, "theme not found") {
+				hasErrors = true
+				break
+			}
 		}
 	}
+
+	// Deploy Luma themes using bin/magento
+	if len(lumaThemes) > 0 {
+		err := deployLumaThemes(magentoRoot, lumaThemes, areas, languages, numJobs, forceFlag, verboseFlag, contentVersion)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error deploying Luma themes: %v\n", err)
+			hasErrors = true
+		}
+	}
+
 	if hasErrors {
 		os.Exit(1)
 	}
@@ -260,6 +300,166 @@ func themeExists(magentoRoot string, area string, themeName string) bool {
 		}
 	}
 	return false
+}
+
+// getThemePath returns the physical path of a theme
+func getThemePath(magentoRoot string, area string, themeName string) string {
+	// Check app/design first
+	appDesignPath := filepath.Join(magentoRoot, "app/design", area, themeName)
+	if _, err := os.Stat(appDesignPath); err == nil {
+		return appDesignPath
+	}
+
+	// Check vendor path
+	vendorPath := filepath.Join(magentoRoot, getVendorThemePath(area, themeName))
+	if _, err := os.Stat(vendorPath); err == nil {
+		return vendorPath
+	}
+
+	return ""
+}
+
+// getThemeParent reads theme.xml and returns the parent theme name
+func getThemeParent(themePath string) string {
+	themeXmlPath := filepath.Join(themePath, "theme.xml")
+	data, err := os.ReadFile(themeXmlPath)
+	if err != nil {
+		return ""
+	}
+
+	var config ThemeConfig
+	if err := xml.Unmarshal(data, &config); err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(config.Parent)
+}
+
+// isHyvaTheme checks if a theme is Hyvä-based by checking its parent chain
+func isHyvaTheme(magentoRoot string, area string, themeName string, visited map[string]bool) bool {
+	// Prevent infinite loops
+	if visited[themeName] {
+		return false
+	}
+	visited[themeName] = true
+
+	// Check if this theme is a known Hyvä theme
+	hyvaThemes := []string{
+		"Hyva/default",
+		"Hyva/reset",
+	}
+	for _, hyva := range hyvaThemes {
+		if themeName == hyva {
+			return true
+		}
+	}
+
+	// Check for Tailwind config file (strong indicator of Hyvä)
+	themePath := getThemePath(magentoRoot, area, themeName)
+	if themePath != "" {
+		tailwindPaths := []string{
+			filepath.Join(themePath, "web/tailwind/tailwind.config.js"),
+			filepath.Join(themePath, "web/tailwind/tailwind.config.cjs"),
+		}
+		for _, tailwindPath := range tailwindPaths {
+			if _, err := os.Stat(tailwindPath); err == nil {
+				return true
+			}
+		}
+	}
+
+	// Check parent theme
+	if themePath != "" {
+		parent := getThemeParent(themePath)
+		if parent != "" {
+			return isHyvaTheme(magentoRoot, area, parent, visited)
+		}
+	}
+
+	return false
+}
+
+// classifyThemes separates themes into Hyvä and Luma categories
+func classifyThemes(magentoRoot string, themes []string, areas []string, verbose bool) (hyvaThemes []string, lumaThemes []string) {
+	// Check each theme against each area (a theme might be Hyvä in frontend but not exist in adminhtml)
+	themeClassification := make(map[string]bool) // true = Hyvä, false = Luma
+
+	for _, theme := range themes {
+		isHyva := false
+		for _, area := range areas {
+			if themeExists(magentoRoot, area, theme) {
+				visited := make(map[string]bool)
+				if isHyvaTheme(magentoRoot, area, theme, visited) {
+					isHyva = true
+					break
+				}
+			}
+		}
+		themeClassification[theme] = isHyva
+	}
+
+	for theme, isHyva := range themeClassification {
+		if isHyva {
+			hyvaThemes = append(hyvaThemes, theme)
+			if verbose {
+				fmt.Printf("🎨 %s detected as Hyvä theme\n", theme)
+			}
+		} else {
+			lumaThemes = append(lumaThemes, theme)
+			if verbose {
+				fmt.Printf("🎨 %s detected as Luma theme\n", theme)
+			}
+		}
+	}
+
+	return hyvaThemes, lumaThemes
+}
+
+// deployLumaThemes dispatches Luma theme deployment to bin/magento
+func deployLumaThemes(magentoRoot string, themes []string, areas []string, languages []string, numJobs int, force bool, verbose bool, contentVersion string) error {
+	if len(themes) == 0 {
+		return nil
+	}
+
+	fmt.Println("\nDispatching Luma themes to bin/magento...")
+
+	// Build the command arguments
+	args := []string{filepath.Join(magentoRoot, "bin/magento"), "setup:static-content:deploy"}
+
+	if force {
+		args = append(args, "-f")
+	}
+
+	for _, area := range areas {
+		args = append(args, "--area="+area)
+	}
+
+	for _, theme := range themes {
+		args = append(args, "--theme="+theme)
+	}
+
+	if numJobs > 0 {
+		args = append(args, fmt.Sprintf("--jobs=%d", numJobs))
+	}
+
+	if contentVersion != "" {
+		args = append(args, "--content-version="+contentVersion)
+	}
+
+	// Add languages as positional arguments
+	args = append(args, languages...)
+
+	// Show the command being executed
+	cmdStr := phpBinary + " " + strings.Join(args, " ")
+	fmt.Printf("Executing: %s\n\n", cmdStr)
+
+	// Execute the command
+	cmd := exec.Command(phpBinary, args...)
+	cmd.Dir = magentoRoot
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
 
 // deployTask wraps a job and result tracking

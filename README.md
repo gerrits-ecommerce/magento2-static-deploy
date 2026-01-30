@@ -2,6 +2,8 @@
 
 Experimental!! A high-performance static content deployment tool written in Go that significantly accelerates Magento 2 static asset deployment by leveraging true parallelization and efficient file I/O.
 
+**Automatic Theme Detection**: The tool automatically detects whether a theme is Hyvä-based (uses fast Go deployment) or Luma-based (dispatches to `bin/magento setup:static-content:deploy` for proper LESS/RequireJS compilation).
+
 ## Performance
 
 On this project, deployment improved from **~115 seconds** (Magento native) to **~0.3-0.5 seconds** for the frontend theme deployment:
@@ -94,6 +96,11 @@ Options:
                                  Default: auto-generate timestamp
 
   -v, --verbose                  Verbose output showing per-deployment progress
+
+      --no-luma-dispatch         Disable automatic dispatch of Luma themes to bin/magento
+                                 Treats all themes as Hyvä (fast copy-only deployment)
+
+      --php string               Path to PHP binary for Luma theme dispatch (default "php")
 ```
 
 ## Examples
@@ -147,6 +154,45 @@ When splitting deployments across multiple runs (e.g., deploying different local
 ```
 
 This is useful for deployment tools like [Deployer](https://github.com/deployphp/deployer) or Hypernode Deploy that optimize deployments by splitting locale-theme combinations across multiple processes.
+
+## Automatic Theme Detection
+
+The tool automatically detects whether each theme is Hyvä-based or Luma-based:
+
+**Hyvä themes** are detected by:
+1. Checking if the theme inherits from `Hyva/default` or `Hyva/reset`
+2. Looking for `web/tailwind/tailwind.config.js` in the theme
+
+**Luma themes** are everything else (including Magento/blank, Magento/luma, and custom Luma-based themes).
+
+### Mixed Theme Deployment
+
+When deploying multiple themes, the tool automatically handles them appropriately:
+
+```bash
+./magento2-static-deploy -f -a frontend -t Vendor/Hyva -t Magento/luma -v nl_NL
+
+# Output:
+# 🎨 Vendor/Hyva detected as Hyvä theme
+# 🎨 Magento/luma detected as Luma theme
+#
+# Deploying Hyvä themes using Go binary...
+# ✓ Vendor/Hyva/frontend (nl_NL) - 4497 files - 0.2s
+#
+# Dispatching Luma themes to bin/magento...
+# Executing: php bin/magento setup:static-content:deploy -f --area=frontend --theme=Magento/luma nl_NL
+# ...
+```
+
+This makes the Go binary a drop-in replacement that handles both theme types intelligently.
+
+### Disable Luma Dispatch
+
+If you want to treat all themes as Hyvä (copy-only deployment without LESS/RequireJS compilation):
+
+```bash
+./magento2-static-deploy -f --no-luma-dispatch -t Magento/luma nl_NL
+```
 
 ## What It Does
 
