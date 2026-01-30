@@ -8,30 +8,37 @@ import (
 	"strings"
 )
 
-// LessCompiler handles LESS to CSS compilation using lessc (Node.js)
+// LessCompiler handles LESS to CSS compilation using PHP (wikimedia/less.php)
+// This matches Magento's built-in LESS compilation behavior
 type LessCompiler struct {
 	magentoRoot string
 	verbose     bool
-	lesscPath   string
+	phpPath     string
 }
 
 // NewLessCompiler creates a new LESS compiler instance
 func NewLessCompiler(magentoRoot string, verbose bool) (*LessCompiler, error) {
-	// Find lessc in PATH
-	lesscPath, err := exec.LookPath("lessc")
+	// Find PHP in PATH
+	phpPath, err := exec.LookPath("php")
 	if err != nil {
-		return nil, fmt.Errorf("lessc not found in PATH. Install with: npm install -g less")
+		return nil, fmt.Errorf("php not found in PATH")
+	}
+
+	// Verify wikimedia/less.php is installed
+	lessPhpPath := filepath.Join(magentoRoot, "vendor/wikimedia/less.php/lessc.inc.php")
+	if _, err := os.Stat(lessPhpPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("wikimedia/less.php not found at %s", lessPhpPath)
 	}
 
 	return &LessCompiler{
 		magentoRoot: magentoRoot,
 		verbose:     verbose,
-		lesscPath:   lesscPath,
+		phpPath:     phpPath,
 	}, nil
 }
 
 // CompileEmailCSS compiles the email LESS files to CSS for a given theme/locale/area
-func (lc *LessCompiler) CompileEmailCSS(stagingDir, destDir string) error {
+func (lc *LessCompiler) CompileEmailCSS(stagingDir, destDir, area, theme, locale string) error {
 	// Email LESS files to compile
 	emailFiles := []string{
 		"email.less",
@@ -56,8 +63,8 @@ func (lc *LessCompiler) CompileEmailCSS(stagingDir, destDir string) error {
 		// Ensure css directory exists
 		os.MkdirAll(filepath.Join(destDir, "css"), 0755)
 
-		// Compile LESS to CSS using lessc
-		if err := lc.compileLessFile(sourcePath, cssPath, stagingDir); err != nil {
+		// Compile LESS to CSS using PHP
+		if err := lc.compileLessFile(sourcePath, cssPath, stagingDir, area, theme, locale); err != nil {
 			if lc.verbose {
 				fmt.Printf("    ✗ Failed to compile %s: %v\n", lessFileName, err)
 			}
@@ -72,8 +79,8 @@ func (lc *LessCompiler) CompileEmailCSS(stagingDir, destDir string) error {
 	return nil
 }
 
-// compileLessFile compiles a single LESS file to CSS using lessc
-func (lc *LessCompiler) compileLessFile(sourcePath, destPath, stagingDir string) error {
+// compileLessFile compiles a single LESS file to CSS using PHP wikimedia/less.php
+func (lc *LessCompiler) compileLessFile(sourcePath, destPath, stagingDir, area, theme, locale string) error {
 	// Build include paths for @import resolution
 	includePaths := []string{
 		stagingDir,
@@ -82,18 +89,71 @@ func (lc *LessCompiler) compileLessFile(sourcePath, destPath, stagingDir string)
 		filepath.Join(stagingDir, "css", "source", "lib"),
 	}
 
-	// Build lessc command with compression to match Magento's minified output
-	args := []string{
+	// Create a PHP script to compile the LESS file
+	// This uses the same Less.php library that Magento uses
+	phpScript := fmt.Sprintf(`<?php
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+
+require_once '%s/vendor/autoload.php';
+
+$lessFile = '%s';
+$cssFile = '%s';
+$includePaths = %s;
+$area = '%s';
+$theme = '%s';
+$locale = '%s';
+
+try {
+    $parser = new Less_Parser([
+        'compress' => true,
+        'relativeUrls' => false,
+        'import_dirs' => array_fill_keys($includePaths, ''),
+    ]);
+
+    $parser->parseFile($lessFile, '');
+    $css = $parser->getCss();
+
+    // Fix the @import url for email-fonts.css to match Magento's format
+    // Magento uses: {{base_url_path}}frontend/Theme/Name/locale/css/email-fonts.css
+    $css = preg_replace(
+        '#@import url\(["\']?([^"\'()]+email-fonts\.css)["\']?\)#',
+        '@import url("{{base_url_path}}' . $area . '/' . $theme . '/{{locale}}/css/email-fonts.css")',
+        $css
+    );
+
+    file_put_contents($cssFile, $css);
+    echo "OK";
+} catch (Exception $e) {
+    fwrite(STDERR, "LESS compilation error: " . $e->getMessage() . "\n");
+    exit(1);
+}
+`,
+		lc.magentoRoot,
 		sourcePath,
 		destPath,
-		"--include-path=" + strings.Join(includePaths, ":"),
-		"--compress",
+		phpArrayString(includePaths),
+		area,
+		theme,
+		locale,
+	)
+
+	// Write the PHP script to the Magento root (accessible from Docker-based PHP)
+	tmpFileName := filepath.Join(lc.magentoRoot, ".less-compile-tmp.php")
+
+	if err := os.WriteFile(tmpFileName, []byte(phpScript), 0644); err != nil {
+		return fmt.Errorf("failed to write PHP script to %s: %w", tmpFileName, err)
 	}
 
-	cmd := exec.Command(lc.lesscPath, args...)
+	// Execute the PHP script from the magento root directory
+	cmd := exec.Command(lc.phpPath, tmpFileName)
+	cmd.Dir = lc.magentoRoot
 	output, err := cmd.CombinedOutput()
+
+	// Clean up temp file after execution
+	os.Remove(tmpFileName)
+
 	if err != nil {
-		return fmt.Errorf("lessc failed: %v\nOutput: %s", err, string(output))
+		return fmt.Errorf("PHP compilation failed: %v\nOutput: %s", err, string(output))
 	}
 
 	// Verify output file was created and has content
@@ -106,4 +166,13 @@ func (lc *LessCompiler) compileLessFile(sourcePath, destPath, stagingDir string)
 	}
 
 	return nil
+}
+
+// phpArrayString converts a Go string slice to PHP array syntax
+func phpArrayString(items []string) string {
+	quoted := make([]string, len(items))
+	for i, item := range items {
+		quoted[i] = fmt.Sprintf("'%s'", item)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }

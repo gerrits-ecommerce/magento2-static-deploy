@@ -146,7 +146,7 @@ func compileLessForResults(magentoRoot string, results []DeployResult, verbose b
 
 		// Use preprocessor to handle Magento's complex LESS structure
 		preprocessor := NewLessPreprocessor(magentoRoot, verbose)
-		if err := preprocessor.PreprocessAndCompile(destDir, result.Job.Area, result.Job.Theme); err != nil {
+		if err := preprocessor.PreprocessAndCompile(destDir, result.Job.Area, result.Job.Theme, result.Job.Locale); err != nil {
 			if verbose {
 				fmt.Printf("    ✗ LESS preprocessing error: %v\n", err)
 			}

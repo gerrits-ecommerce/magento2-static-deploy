@@ -25,14 +25,14 @@ func NewLessPreprocessor(magentoRoot string, verbose bool) *LessPreprocessor {
 }
 
 // PreprocessAndCompile preprocesses LESS files and compiles them to CSS
-func (lp *LessPreprocessor) PreprocessAndCompile(destDir, area, theme string) error {
-	// Create a temporary staging directory
-	stagingDir, err := os.MkdirTemp("", "magento-less-*")
-	if err != nil {
+func (lp *LessPreprocessor) PreprocessAndCompile(destDir, area, theme, locale string) error {
+	// Create a temporary staging directory in the Magento root (accessible from Docker-based PHP)
+	stagingDir := filepath.Join(lp.magentoRoot, ".less-staging-tmp")
+	os.RemoveAll(stagingDir) // Clean up any previous staging directory
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
 		return fmt.Errorf("failed to create staging directory: %w", err)
 	}
-	// Keep staging dir for debugging - uncomment defer to clean up
-	// defer os.RemoveAll(stagingDir)
+	defer os.RemoveAll(stagingDir) // Clean up after compilation
 	lp.stagingDir = stagingDir
 
 	if lp.verbose {
@@ -55,7 +55,7 @@ func (lp *LessPreprocessor) PreprocessAndCompile(destDir, area, theme string) er
 		return fmt.Errorf("LESS compiler not available: %w", err)
 	}
 
-	if err := compiler.CompileEmailCSS(lp.stagingDir, destDir); err != nil {
+	if err := compiler.CompileEmailCSS(lp.stagingDir, destDir, area, theme, locale); err != nil {
 		return fmt.Errorf("failed to compile email CSS: %w", err)
 	}
 
