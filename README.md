@@ -1,6 +1,6 @@
 # Magento Static Content Deployer (Go)
 
-Experimental!! A high-performance static content deployment tool written in Go that significantly accelerates Magento 2 static asset deployment by leveraging true parallelization and efficient file I/O.
+Experimental!!! A high-performance static content deployment tool written in Go that significantly accelerates Magento 2 static asset deployment by leveraging true parallelization and efficient file I/O.
 
 **Automatic Theme Detection**: The tool automatically detects whether a theme is Hyvä-based (uses fast Go deployment) or Luma-based (dispatches to `bin/magento setup:static-content:deploy` for proper LESS/RequireJS compilation).
 
