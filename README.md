@@ -295,7 +295,8 @@ While we now use PHP's `wikimedia/less.php` for email CSS compilation (matching 
 - ✅ Fast parallel file copying
 - ✅ Multi-locale/theme/area support
 - ✅ Theme module overrides (`app/design/{area}/{vendor}/{theme}/{Module}/web/`)
-- ✅ Vendor module web assets
+- ✅ Vendor module web assets (`vendor/*/*/view/`)
+- ✅ App code module web assets (`app/code/*/*/view/`)
 - ✅ Library files (`lib/web/`)
 - ✅ Content version management
 - ✅ Verbose progress reporting

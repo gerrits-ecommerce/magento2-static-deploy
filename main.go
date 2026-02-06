@@ -768,6 +768,53 @@ func deployTheme(magentoRoot string, job DeployJob, version string) (int64, erro
 		}
 	}
 
+	// 4. Copy extension view files from app/code/ modules (app/code/*/*/view/{area}/web/)
+	appCodeDir := filepath.Join(magentoRoot, "app", "code")
+	appCodeVendorEntries, err := os.ReadDir(appCodeDir)
+	if err == nil {
+		for _, appCodeVendorEntry := range appCodeVendorEntries {
+			if !appCodeVendorEntry.IsDir() {
+				continue
+			}
+
+			appCodeVendorPath := filepath.Join(appCodeDir, appCodeVendorEntry.Name())
+			appCodeModuleEntries, err := os.ReadDir(appCodeVendorPath)
+			if err != nil {
+				continue
+			}
+
+			for _, appCodeModuleEntry := range appCodeModuleEntries {
+				if !appCodeModuleEntry.IsDir() {
+					continue
+				}
+				modulePath := filepath.Join(appCodeVendorPath, appCodeModuleEntry.Name())
+
+				// Get module name from etc/module.xml
+				moduleName := getModuleName(modulePath)
+
+				// Check for view/{area}/web/ directory
+				moduleWebDir := filepath.Join(modulePath, "view", job.Area, "web")
+				if _, err := os.Stat(moduleWebDir); err == nil {
+					count, err := copyDirectoryWithModulePrefix(moduleWebDir, destDir, moduleName, useSymlink)
+					if err != nil {
+						continue
+					}
+					fileCount += count
+				}
+
+				// Also check view/base/web/ (shared across areas)
+				moduleBaseDir := filepath.Join(modulePath, "view", "base", "web")
+				if _, err := os.Stat(moduleBaseDir); err == nil {
+					count, err := copyDirectoryWithModulePrefix(moduleBaseDir, destDir, moduleName, useSymlink)
+					if err != nil {
+						continue
+					}
+					fileCount += count
+				}
+			}
+		}
+	}
+
 	if fileCount == 0 {
 		return 0, fmt.Errorf("theme directory not found for %s/%s", job.Area, job.Theme)
 	}
